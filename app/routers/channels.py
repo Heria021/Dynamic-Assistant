@@ -25,3 +25,24 @@ async def get_ast_info(
             "message": f"An error occurred: {e}",
             "data": None
         }
+    
+@router.post("/channels-api-integration")
+async def api_integration(
+    channel: model_type.Channel = Depends(),
+    user: dict = Depends(get_current_user)
+):
+    data = await controller.api_integration(channel)
+    try:
+        message = "Data fetched successfully"
+        return {
+            "status": True,
+            "message": message,
+            "data": data
+        }
+
+    except Exception as e:
+        return {
+            "status": False,
+            "message": f"An error occurred: {e}",
+            "data": None
+        }

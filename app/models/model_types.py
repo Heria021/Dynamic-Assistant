@@ -72,3 +72,7 @@ class UserProfile(BaseModel):
     User_name : str
     User_email : str
     OpenAPI_key : Optional[str] = None
+
+class Channel(BaseModel):
+    astName: str
+    apiToken: str

@@ -1,0 +1,166 @@
+---
+
+### **API Integration Code Examples**
+
+### **1. Python Example using \`requests\`**
+
+#### **Starting a New Conversation**
+
+\`\`\`python
+import requests
+
+url = "https://agents-api-stage.leoqui.ai/api/enduser/end-user-chat"
+
+payload = {
+    'astName': '{{ agent_name }}',
+    'apiToken': '{{ api_token }}',
+    'message': 'Hello'
+}
+
+response = requests.post(url, files=payload)
+
+if response.status_code == 200:
+    data = response.json()
+    print("Agent Response:", data['message'])
+    print("Thread Token:", data.get('threadtoken'))
+else:
+    print("Error:", response.status_code, response.text)
+\`\`\`
+
+#### **Continuing an Existing Conversation**
+
+\`\`\`python
+import requests
+
+url = "https://agents-api-stage.leoqui.ai/api/enduser/end-user-chat"
+
+payload = {
+    'astName': '{{ agent_name }}',
+    'apiToken': '{{ api_token }}',
+    'threadtoken': '{{ thread_token }}',
+    'message': 'Hello again'
+}
+
+response = requests.post(url, files=payload)
+
+if response.status_code == 200:
+    data = response.json()
+    print("Agent Response:", data['message'])
+else:
+    print("Error:", response.status_code, response.text)
+\`\`\`
+
+---
+
+### **2. JavaScript Example using \`fetch\` (Node.js or Browser)**
+
+#### **Starting a New Conversation**
+
+\`\`\`javascript
+const fetch = require('node-fetch'); // For Node.js. In browsers, fetch is available globally.
+
+const url = 'https://agents-api-stage.leoqui.ai/api/enduser/end-user-chat';
+
+const formData = new FormData();
+formData.append('astName', '{{ agent_name }}');
+formData.append('apiToken', '{{ api_token }}');
+formData.append('message', 'Hello');
+
+fetch(url, {
+  method: 'POST',
+  body: formData,
+  headers: {
+    'accept': 'application/json'
+  }
+})
+.then(response => response.json())
+.then(data => {
+  console.log('Agent Response:', data.message);
+  console.log('Thread Token:', data.threadtoken);
+})
+.catch(error => {
+  console.error('Error:', error);
+});
+\`\`\`
+
+#### **Continuing an Existing Conversation**
+
+\`\`\`javascript
+const fetch = require('node-fetch');
+
+const url = 'https://agents-api-stage.leoqui.ai/api/enduser/end-user-chat';
+
+const formData = new FormData();
+formData.append('astName', '{{ agent_name }}');
+formData.append('apiToken', '{{ api_token }}');
+formData.append('threadtoken', '{{ thread_token }}');
+formData.append('message', 'Hello again');
+
+fetch(url, {
+  method: 'POST',
+  body: formData,
+  headers: {
+    'accept': 'application/json'
+  }
+})
+.then(response => response.json())
+.then(data => {
+  console.log('Agent Response:', data.message);
+})
+.catch(error => {
+  console.error('Error:', error);
+});
+\`\`\`
+
+---
+
+### **3. cURL Command-Line Examples**
+
+#### **Starting a New Conversation**
+
+\`\`\`bash
+curl -X POST \\
+  'https://agents-api-stage.leoqui.ai/api/enduser/end-user-chat' \\
+  -H 'accept: application/json' \\
+  -H 'Content-Type: multipart/form-data' \\
+  -F 'astName={{ agent_name }}' \\
+  -F 'apiToken={{ api_token }}' \\
+  -F 'message=Hello'
+\`\`\`
+
+#### **Continuing an Existing Conversation**
+
+\`\`\`bash
+curl -X POST \\
+  'https://agents-api-stage.leoqui.ai/api/enduser/end-user-chat' \\
+  -H 'accept: application/json' \\
+  -H 'Content-Type: multipart/form-data' \\
+  -F 'astName={{ agent_name }}' \\
+  -F 'apiToken={{ api_token }}' \\
+  -F 'threadtoken={{ thread_token }}' \\
+  -F 'message=Hello again'
+\`\`\`
+
+---
+
+### **Handling Placeholders**
+
+- **Replace Placeholders**:
+  - \`{{ agent_name }}\`: The name of the AI agent.
+  - \`{{ api_token }}\`: The API authentication token.
+  - \`{{ thread_token }}\`: (Optional) Used to continue an existing conversation.
+
+---
+
+### **Sample Response**
+
+The response after a successful API call:
+
+\`\`\`json
+{
+  "message": "Hello! How can I assist you today?",
+  "threadtoken": "newly_generated_thread_token"
+}
+\`\`\`
+
+---
