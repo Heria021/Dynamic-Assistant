@@ -9,7 +9,8 @@ async def create_assistant(assistant: model_type.Assistant,
                            user: dict = Depends(get_current_user)):
     try:
         userId = user.get('login_id')
-        response = await controller.create_new_assistant(userId,assistant)
+        api_token = await controller.generate_api_token(userId)
+        response = await controller.create_new_assistant(userId,assistant,api_token)
         return {
             "status": True,
             "message": "Assistant created successfully",
@@ -30,7 +31,8 @@ async def create_assistant_with_file(
 ):
     try: 
         userId = user.get('login_id')
-        new_assistant = await controller.create_new_assistant_with_file(userId,assistant, files)
+        api_token = await controller.generate_api_token(userId)
+        new_assistant = await controller.create_new_assistant_with_file(userId,assistant,api_token ,files)
         return {
             "status": True,
             "message": "Assistant created successfully",

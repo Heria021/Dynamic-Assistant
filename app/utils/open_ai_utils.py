@@ -1,17 +1,18 @@
 import json
-
+import secrets
 from fastapi import UploadFile
 from openai import OpenAI
 import app.models.model_types as model_type
 import app.helpers.openai_helper as ai_helper
 from fastapi import HTTPException, status
-
+import hashlib
+import time
 
 async def create_thread_title(content: str) -> str:
     template_string = f"""
                 content = {content}
                 task = Give me a short title using the content which we have mentioned earlier under 8-10 words 
-                without any special character or double quotes. And don't write or tell me what you're really doing.
+                without any special character or double quotes. And don't write or tell me what you're really doing, The Final response should contain only the Title and Nothing else.
         """
     client = OpenAI()
     response = client.chat.completions.create(
@@ -24,14 +25,23 @@ async def create_thread_title(content: str) -> str:
 
     return response.choices[0].message.content
 
+def generate_api_token(user_id) :
+    # Combine user_id with current timestamp
+    raw_token = f"{user_id}-{time.time()}-{secrets.token_urlsafe(16)}"
+    
+    # Hash the combined string using SHA-256
+    hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
+    
+    return hashed_token
 
 async def create_assistant(payload: model_type.Assistant):
     assistant_tools = []
-
+    print("1.1")
     for aiTool in payload.astTools:
-        tool = {"type": aiTool}
-        assistant_tools.append(tool)
-
+        for ai_tool in aiTool.split(','):
+            tool = {"type": ai_tool}
+            assistant_tools.append(tool)
+    print("1.2")
     client = OpenAI()
     assistant = client.beta.assistants.create(
         name=payload.astName,
@@ -39,6 +49,7 @@ async def create_assistant(payload: model_type.Assistant):
         model=payload.gptModel,
         tools=assistant_tools,
     )
+    print("1.3")
     return assistant
 
 
@@ -67,8 +78,9 @@ async def create_assistant_with_file(
     print("1.1")
     try:
         for aiTool in payload.astTools:
-            tool = {"type": aiTool}
-            assistant_tools.append(tool)
+            for ai_tool in aiTool.split(','):
+                tool = {"type": ai_tool}
+                assistant_tools.append(tool)
         print("1.2")
 
         client = OpenAI()

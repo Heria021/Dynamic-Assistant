@@ -203,3 +203,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Security(securi
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
+
+async def get_api_token(ast_id,api_token):
+    Ast_Id = await mongod.get_astId_by_apiToken(api_token)
+    if ast_id == Ast_Id:
+        return("Success")
+    else:
+        return("Failure")
+    
+
+    
