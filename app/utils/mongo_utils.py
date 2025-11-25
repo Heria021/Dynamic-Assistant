@@ -357,3 +357,129 @@ def fetch_channel_info_by_ast_id(userid: str):
             status_code=status.HTTP_409_CONFLICT,
             detail="Something went wrong during fetching assistant.",
         )
+
+
+# ============== NEW CUSTOM AUTH FUNCTIONS ==============
+
+def create_user(email: str, password_hash: str, verification_code: str, is_confirmed: bool = False):
+    """Create new user with password hash"""
+    from datetime import datetime, timedelta
+    
+    user_data = {
+        "email": email,
+        "password_hash": password_hash,
+        "verification_code": verification_code,
+        "verification_code_expires_at": datetime.utcnow() + timedelta(hours=24),
+        "is_confirmed": is_confirmed,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow()
+    }
+    try:
+        result = UsersCollection.insert_one(user_data)
+        return result.inserted_id
+    except Exception as e:
+        print(f"Error creating user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Failed to create user"
+        )
+
+
+def mark_user_confirmed(email: str):
+    """Mark user as email confirmed"""
+    try:
+        UsersCollection.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "is_confirmed": True,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+    except Exception as e:
+        print(f"Error confirming user: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Failed to confirm user"
+        )
+
+
+def save_password_reset_code(email: str, reset_code: str):
+    """Save password reset code"""
+    from datetime import datetime, timedelta
+    
+    try:
+        UsersCollection.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "reset_code": reset_code,
+                    "reset_code_expires_at": datetime.utcnow() + timedelta(hours=1),
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+    except Exception as e:
+        print(f"Error saving reset code: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Failed to save reset code"
+        )
+
+
+def clear_password_reset_code(email: str):
+    """Clear password reset code after use"""
+    try:
+        UsersCollection.update_one(
+            {"email": email},
+            {
+                "$unset": {
+                    "reset_code": "",
+                    "reset_code_expires_at": ""
+                }
+            }
+        )
+    except Exception as e:
+        print(f"Error clearing reset code: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Failed to clear reset code"
+        )
+
+
+def update_user_password(email: str, new_password_hash: str):
+    """Update user password hash"""
+    try:
+        UsersCollection.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "password_hash": new_password_hash,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+    except Exception as e:
+        print(f"Error updating password: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Failed to update password"
+        )
+
+
+def update_last_login(email: str):
+    """Update user's last login timestamp"""
+    try:
+        UsersCollection.update_one(
+            {"email": email},
+            {
+                "$set": {
+                    "last_login": datetime.utcnow()
+                }
+            }
+        )
+    except Exception as e:
+        print(f"Error updating last login: {e}")
+        # Don't raise error for this non-critical operation
+        pass

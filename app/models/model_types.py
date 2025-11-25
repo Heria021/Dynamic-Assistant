@@ -28,6 +28,14 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+
 class Assistant(BaseModel):
     astName: str
     astInstruction: str

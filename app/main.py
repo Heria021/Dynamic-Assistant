@@ -20,7 +20,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-app.include_router(auth.router, tags=["Authentication"], prefix="/api/auth")
+app.include_router(auth.router, tags=["Authentication"])
 app.include_router(assistant.router, tags=["Assistant"], prefix="/api/assistant")
 app.include_router(threads.router, tags=["Threads"], prefix="/api/threads")
 app.include_router(chats.router, tags=["Chats"], prefix="/api/chats")

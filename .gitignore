@@ -5,3 +5,7 @@ volumes
 .vscode
 .venv/
 .venv
+credentials.json
+token.pickle
+*.pickle
+server.log
