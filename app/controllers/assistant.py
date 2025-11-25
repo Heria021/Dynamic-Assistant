@@ -35,9 +35,8 @@ async def get_all_assistants(userid):
     result = mongo_utils.fetch_all_assistants(userid)
     return result
 
-
-async def get_assistant_by_id(userId,ast_id: str):
-    db_assistant = mongo_utils.get_assistant_by_id(userId,ast_id)
+async def get_assistant_by_id(ast_id: str):
+    db_assistant = mongo_utils.get_assistant_by_id(ast_id)
     return db_assistant
 
 

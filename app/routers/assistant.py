@@ -87,7 +87,7 @@ async def get_all_assistant_by_id(ast_id: str,
                                   user: dict = Depends(get_current_user)):
     try:
         userId = user.get('login_id')
-        assistant = await controller.get_assistant_by_id(userId,ast_id)
+        assistant = await controller.get_assistant_by_id(ast_id)
         return {
             "status": True,
             "message": "Assistant fetched successfully",
