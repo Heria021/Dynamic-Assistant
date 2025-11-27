@@ -66,11 +66,11 @@ print_success "Access token obtained"
 echo -e "Token (first 50 chars): ${YELLOW}${ACCESS_TOKEN:0:50}...${NC}"
 
 # ============================================================================
-# STEP 2: CREATE AN ASSISTANT (needed for channels API)
+# STEP 2: GET OR CREATE AN ASSISTANT (needed for channels API)
 # ============================================================================
-print_header "STEP 2: Create Assistant (Prerequisite for Channels)"
+print_header "STEP 2: Get or Create Assistant (Prerequisite for Channels)"
 
-echo -e "\n${YELLOW}Creating test assistant...${NC}"
+echo -e "\n${YELLOW}Attempting to create test assistant...${NC}"
 
 ASSISTANT_RESPONSE=$(curl -s -X POST "$BASE_URL/api/assistant/create-assistant" \
     -H "Content-Type: application/json" \
@@ -82,25 +82,67 @@ ASSISTANT_RESPONSE=$(curl -s -X POST "$BASE_URL/api/assistant/create-assistant" 
         \"astTools\": [\"code_interpreter\"]
     }")
 
-echo -e "\n${YELLOW}Assistant Created:${NC}"
+echo -e "\n${YELLOW}Assistant Creation Response:${NC}"
 format_json "$ASSISTANT_RESPONSE"
 
-ASSISTANT_ID=$(echo "$ASSISTANT_RESPONSE" | python3 -c "import sys, json
+# Extract assistant ID, name, and API token from creation response
+ASSISTANT_EXTRACTION=$(echo "$ASSISTANT_RESPONSE" | python3 -c "import sys, json
+data=json.load(sys.stdin)
+result = {'astId': '', 'astName': '', 'apiToken': ''}
+try:
+    if data.get('status') and data.get('data'):
+        assistant_data = data.get('data', {})
+        if isinstance(assistant_data, dict):
+            result['astId'] = assistant_data.get('astId', '') or assistant_data.get('_id', '')
+            result['astName'] = assistant_data.get('astName', '')
+            result['apiToken'] = assistant_data.get('apiToken', '')
+        elif isinstance(assistant_data, list) and len(assistant_data) > 0:
+            result['astId'] = assistant_data[0].get('astId', '') or assistant_data[0].get('_id', '')
+            result['astName'] = assistant_data[0].get('astName', '')
+            result['apiToken'] = assistant_data[0].get('apiToken', '')
+except Exception:
+    pass
+print(f\"{result['astId']}|{result['astName']}|{result['apiToken']}\")
+" 2>/dev/null)
+
+ASSISTANT_ID=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f1)
+CREATED_ASSISTANT_NAME=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f2)
+CREATED_API_TOKEN=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f3)
+
+# If assistant creation failed, try to get existing assistants
+if [ -z "$ASSISTANT_ID" ]; then
+    echo -e "\n${YELLOW}Assistant creation failed. Trying to fetch existing assistants...${NC}"
+    
+    EXISTING_ASSISTANTS=$(curl -s -X GET "$BASE_URL/api/assistant/get-assistant" \
+        -H "Authorization: Bearer $ACCESS_TOKEN")
+    
+    echo -e "\n${YELLOW}Existing Assistants Response:${NC}"
+    format_json "$EXISTING_ASSISTANTS"
+    
+    ASSISTANT_ID=$(echo "$EXISTING_ASSISTANTS" | python3 -c "import sys, json
 data=json.load(sys.stdin)
 out=''
 try:
-    out = data.get('data', {}).get('_id','') or (data.get('data',{}).get('assistant')[0].get('astId') if data.get('data',{}).get('assistant') else '')
+    if data.get('status') and data.get('data') and isinstance(data.get('data'), list) and len(data['data']) > 0:
+        # Get the first assistant's astId
+        out = data['data'][0].get('astId', '')
+        if not out:
+            # Try _id as fallback
+            out = data['data'][0].get('_id', '')
 except Exception:
-    out = ''
+    pass
 print(out)
 " 2>/dev/null)
-
-if [ -z "$ASSISTANT_ID" ]; then
-    print_error "Failed to create assistant"
-    exit 1
+    
+    if [ -z "$ASSISTANT_ID" ]; then
+        print_error "Failed to create assistant and no existing assistants found. Cannot proceed with channel tests."
+        exit 1
+    else
+        print_success "Using existing assistant with ID: $ASSISTANT_ID"
+    fi
+else
+    print_success "Assistant created with ID: $ASSISTANT_ID"
 fi
-
-print_success "Assistant created with ID: $ASSISTANT_ID"
 
 # ============================================================================
 # STEP 3: CHANNELS API - Get Assistant Info
@@ -115,15 +157,111 @@ AST_INFO_RESPONSE=$(curl -s -X POST "$BASE_URL/api/channel/channels-ast-info?ast
 echo -e "\n${YELLOW}Assistant Info Response:${NC}"
 format_json "$AST_INFO_RESPONSE"
 
+# Extract assistant name and API token from the response
+# First try from channels-ast-info response, then fallback to existing assistants list
+ASSISTANT_NAME=$(echo "$AST_INFO_RESPONSE" | python3 -c "import sys, json
+data=json.load(sys.stdin)
+out=''
+try:
+    if data.get('status') and data.get('data') and isinstance(data.get('data'), list) and len(data['data']) > 0:
+        out = data['data'][0].get('astName', '')
+except Exception:
+    pass
+print(out)
+" 2>/dev/null)
+
+API_TOKEN=$(echo "$AST_INFO_RESPONSE" | python3 -c "import sys, json
+data=json.load(sys.stdin)
+out=''
+try:
+    if data.get('status') and data.get('data') and isinstance(data.get('data'), list) and len(data['data']) > 0:
+        # Try both api_token and apiToken field names
+        out = data['data'][0].get('api_token', '') or data['data'][0].get('apiToken', '')
+except Exception:
+    pass
+print(out)
+" 2>/dev/null)
+
+# First priority: Use values from assistant creation if available
+if [ -n "$CREATED_ASSISTANT_NAME" ]; then
+    ASSISTANT_NAME="$CREATED_ASSISTANT_NAME"
+fi
+if [ -n "$CREATED_API_TOKEN" ]; then
+    API_TOKEN="$CREATED_API_TOKEN"
+fi
+
+# If channels-ast-info didn't return data, extract from existing assistants list
+if [ -z "$ASSISTANT_NAME" ] || [ -z "$API_TOKEN" ]; then
+    if [ -n "$EXISTING_ASSISTANTS" ]; then
+        echo -e "\n${YELLOW}Extracting assistant info from existing assistants list...${NC}"
+        
+        EXTRACTED_NAME=$(echo "$EXISTING_ASSISTANTS" | python3 -c "import sys, json
+data=json.load(sys.stdin)
+out=''
+try:
+    if data.get('status') and data.get('data') and isinstance(data.get('data'), list) and len(data['data']) > 0:
+        for assistant in data['data']:
+            if assistant.get('astId') == '$ASSISTANT_ID':
+                out = assistant.get('astName', '')
+                break
+except Exception:
+    pass
+print(out)
+" 2>/dev/null)
+        
+        EXTRACTED_TOKEN=$(echo "$EXISTING_ASSISTANTS" | python3 -c "import sys, json
+data=json.load(sys.stdin)
+out=''
+try:
+    if data.get('status') and data.get('data') and isinstance(data.get('data'), list) and len(data['data']) > 0:
+        for assistant in data['data']:
+            if assistant.get('astId') == '$ASSISTANT_ID':
+                out = assistant.get('apiToken', '')
+                break
+except Exception:
+    pass
+print(out)
+" 2>/dev/null)
+        
+        if [ -n "$EXTRACTED_NAME" ]; then
+            ASSISTANT_NAME="$EXTRACTED_NAME"
+        fi
+        
+        if [ -n "$EXTRACTED_TOKEN" ]; then
+            API_TOKEN="$EXTRACTED_TOKEN"
+        fi
+    fi
+fi
+
+if [ -n "$ASSISTANT_NAME" ]; then
+    echo -e "\n${GREEN}✓ Extracted Assistant Name: $ASSISTANT_NAME${NC}"
+else
+    ASSISTANT_NAME="Channels Test Assistant"
+    echo -e "\n${YELLOW}⚠ Using default assistant name${NC}"
+fi
+
+if [ -n "$API_TOKEN" ]; then
+    echo -e "${GREEN}✓ Extracted API Token: ${API_TOKEN:0:20}...${NC}"
+else
+    API_TOKEN="test-token"
+    echo -e "${YELLOW}⚠ Using default test token (api_token not found)${NC}"
+fi
+
 # ============================================================================
 # STEP 4: CHANNELS API - API Integration Setup
 # ============================================================================
 print_header "STEP 4: Channels API - API Integration"
 
 echo -e "\n${YELLOW}Setting up API integration...${NC}"
+echo -e "Using Assistant Name: ${YELLOW}$ASSISTANT_NAME${NC}"
+echo -e "Using API Token: ${YELLOW}${API_TOKEN:0:20}...${NC}"
+
+# URL encode the assistant name and API token
+ENCODED_AST_NAME=$(echo -n "$ASSISTANT_NAME" | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))" 2>/dev/null || echo "$ASSISTANT_NAME")
+ENCODED_API_TOKEN=$(echo -n "$API_TOKEN" | python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))" 2>/dev/null || echo "$API_TOKEN")
 
 # Create channel data (using query parameters for Channel model)
-CHANNEL_RESPONSE=$(curl -s -X POST "$BASE_URL/api/channel/channels-api-integration?astName=Channels%20Test%20Assistant&apiToken=test-token" \
+CHANNEL_RESPONSE=$(curl -s -X POST "$BASE_URL/api/channel/channels-api-integration?astName=$ENCODED_AST_NAME&apiToken=$ENCODED_API_TOKEN" \
     -H "Authorization: Bearer $ACCESS_TOKEN")
 
 echo -e "\n${YELLOW}API Integration Response:${NC}"

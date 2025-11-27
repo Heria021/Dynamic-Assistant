@@ -85,33 +85,70 @@ ASSISTANT_RESPONSE=$(curl -s -X POST "$BASE_URL/api/assistant/create-assistant" 
 echo -e "\n${YELLOW}Assistant Created:${NC}"
 format_json "$ASSISTANT_RESPONSE"
 
-ASSISTANT_ID=$(echo "$ASSISTANT_RESPONSE" | python3 -c "import sys, json
+# Extract assistant ID and API token from response
+ASSISTANT_EXTRACTION=$(echo "$ASSISTANT_RESPONSE" | python3 -c "import sys, json
 data=json.load(sys.stdin)
-out=''
+result = {'astId': '', 'astName': '', 'apiToken': ''}
 try:
-    out = data.get('data', {}).get('_id','') or (data.get('data',{}).get('assistant')[0].get('astId') if data.get('data',{}).get('assistant') else '')
+    if data.get('status') and data.get('data'):
+        assistant_data = data.get('data', {})
+        if isinstance(assistant_data, dict):
+            # New format: data is a dict with astId and apiToken directly
+            result['astId'] = assistant_data.get('astId', '')  # Use astId (OpenAI assistant ID)
+            result['astName'] = assistant_data.get('astName', '')
+            result['apiToken'] = assistant_data.get('apiToken', '')
+        elif isinstance(assistant_data, list) and len(assistant_data) > 0:
+            # Old format: data is a list
+            result['astId'] = assistant_data[0].get('astId', '') or assistant_data[0].get('_id', '')
+            result['astName'] = assistant_data[0].get('astName', '')
+            result['apiToken'] = assistant_data[0].get('apiToken', '') or assistant_data[0].get('api_token', '')
 except Exception:
-    out = ''
-print(out)
+    pass
+print(f\"{result['astId']}|{result['astName']}|{result['apiToken']}\")
 " 2>/dev/null)
 
-if [ -z "$ASSISTANT_ID" ]; then
-    print_error "Failed to create assistant"
-    exit 1
+ASSISTANT_ID=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f1)
+ASSISTANT_NAME=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f2)
+ASSISTANT_API_TOKEN=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f3)
+
+# If assistant creation failed, try to get existing assistants
+if [ -z "$ASSISTANT_ID" ] || [ -z "$ASSISTANT_API_TOKEN" ]; then
+    echo -e "\n${YELLOW}Assistant creation failed or limit reached. Fetching existing assistants...${NC}"
+    
+    EXISTING_ASSISTANTS=$(curl -s -X GET "$BASE_URL/api/assistant/get-assistant" \
+        -H "Authorization: Bearer $ACCESS_TOKEN")
+    
+    echo -e "\n${YELLOW}Existing Assistants Response:${NC}"
+    format_json "$EXISTING_ASSISTANTS"
+    
+    # Extract from first assistant
+    ASSISTANT_EXTRACTION=$(echo "$EXISTING_ASSISTANTS" | python3 -c "import sys, json
+data=json.load(sys.stdin)
+result = {'astId': '', 'astName': '', 'apiToken': ''}
+try:
+    if data.get('status') and data.get('data') and isinstance(data.get('data'), list) and len(data['data']) > 0:
+        assistant = data['data'][0]
+        result['astId'] = assistant.get('astId', '')
+        result['astName'] = assistant.get('astName', '')
+        result['apiToken'] = assistant.get('apiToken', '')
+except Exception:
+    pass
+print(f\"{result['astId']}|{result['astName']}|{result['apiToken']}\")
+" 2>/dev/null)
+    
+    ASSISTANT_ID=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f1)
+    ASSISTANT_NAME=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f2)
+    ASSISTANT_API_TOKEN=$(echo "$ASSISTANT_EXTRACTION" | cut -d'|' -f3)
+    
+    if [ -z "$ASSISTANT_ID" ] || [ -z "$ASSISTANT_API_TOKEN" ]; then
+        print_error "Failed to create assistant and no existing assistants found. Cannot proceed."
+        exit 1
+    else
+        print_success "Using existing assistant: $ASSISTANT_NAME (ID: $ASSISTANT_ID)"
+    fi
+else
+    print_success "Assistant created with ID: $ASSISTANT_ID"
 fi
-
-print_success "Assistant created with ID: $ASSISTANT_ID"
-
-# Extract API token from assistant response
-ASSISTANT_API_TOKEN=$(echo "$ASSISTANT_RESPONSE" | python3 -c "import sys, json
-data=json.load(sys.stdin)
-out=''
-try:
-    out = data.get('data', {}).get('assistant', [{}])[0].get('api_token', '')
-except Exception:
-    out = ''
-print(out)
-" 2>/dev/null)
 
 if [ -z "$ASSISTANT_API_TOKEN" ]; then
     print_error "Failed to extract API token from assistant"
@@ -129,25 +166,31 @@ print_header "STEP 3: End-User API - Create Chat with New Thread"
 echo -e "\n${YELLOW}Creating a new end-user chat (this will create a thread automatically)...${NC}"
 
 ENDUSER_CHAT_RESPONSE=$(curl -s -X POST "$BASE_URL/api/enduser/end-user-chat" \
-    -F "astName=End-User Chat Assistant" \
+    -F "astName=$ASSISTANT_NAME" \
     -F "apiToken=$ASSISTANT_API_TOKEN" \
     -F "message=Hello! Can you help me understand Python generators?")
 
 echo -e "\n${YELLOW}End-User Chat Response:${NC}"
 format_json "$ENDUSER_CHAT_RESPONSE"
 
-# Extract thread ID from response
+# Extract thread token from response
 THREAD_ID=$(echo "$ENDUSER_CHAT_RESPONSE" | python3 -c "import sys, json
 data=json.load(sys.stdin)
 out=''
 try:
-    # Extract threadToken from thread_data array
-    thread_data = data.get('thread_data', [])
-    if thread_data and len(thread_data) > 0:
-        out = thread_data[0].get('threadToken', '')
+    # Try direct threadtoken field first
+    out = data.get('threadtoken', '')
     if not out:
-        # Try alternate locations
-        out = data.get('data', {}).get('threadToken', '')
+        # Try threadToken (camelCase)
+        out = data.get('threadToken', '')
+    if not out:
+        # Try in data object
+        out = data.get('data', {}).get('threadtoken', '') or data.get('data', {}).get('threadToken', '')
+    if not out:
+        # Try thread_data array
+        thread_data = data.get('thread_data', [])
+        if thread_data and len(thread_data) > 0:
+            out = thread_data[0].get('threadToken', '') or thread_data[0].get('threadtoken', '')
 except Exception as e:
     out = ''
 print(out)
@@ -168,7 +211,7 @@ print_header "STEP 4: End-User API - Continue Chat in Existing Thread"
 echo -e "\n${YELLOW}Sending another message to the same thread...${NC}"
 
 ENDUSER_CHAT_RESPONSE_2=$(curl -s -X POST "$BASE_URL/api/enduser/end-user-chat" \
-    -F "astName=End-User Chat Assistant" \
+    -F "astName=$ASSISTANT_NAME" \
     -F "apiToken=$ASSISTANT_API_TOKEN" \
     -F "threadtoken=$THREAD_ID" \
     -F "message=What is the difference between list comprehension and generator expressions?")
@@ -184,7 +227,7 @@ print_header "STEP 5: End-User API - Chat with Message"
 echo -e "\n${YELLOW}Sending a final message...${NC}"
 
 ENDUSER_CHAT_RESPONSE_3=$(curl -s -X POST "$BASE_URL/api/enduser/end-user-chat" \
-    -F "astName=End-User Chat Assistant" \
+    -F "astName=$ASSISTANT_NAME" \
     -F "apiToken=$ASSISTANT_API_TOKEN" \
     -F "threadtoken=$THREAD_ID" \
     -F "message=How can I optimize my Python code for better performance?")
@@ -205,7 +248,7 @@ echo "  4. ${GREEN}✓${NC} POST   /api/enduser/end-user-chat      - Continue Ch
 echo "  5. ${GREEN}✓${NC} POST   /api/enduser/end-user-chat      - Send Multiple Messages"
 
 echo -e "\n${BLUE}Test Data:${NC}"
-echo "  Assistant Name: ${YELLOW}End-User Chat Assistant${NC}"
+echo "  Assistant Name: ${YELLOW}$ASSISTANT_NAME${NC}"
 echo "  Assistant ID:   ${YELLOW}$ASSISTANT_ID${NC}"
 echo "  API Token:      ${YELLOW}${ASSISTANT_API_TOKEN:0:20}...${NC}"
 echo "  Thread ID:      ${YELLOW}$THREAD_ID${NC}"

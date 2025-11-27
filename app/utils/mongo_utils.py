@@ -243,23 +243,27 @@ def fetch_threads_by_assistant_id(userId,assistant_id: str):
 
 async def get_astId_by_apiToken(api_token: str):
     try:
-        doc = OurAssistant.find(
-            filter={"api_token": api_token},
-            projection={"_id": 0, "astId": 1}
+        # Try both field names: api_token (snake_case) and apiToken (camelCase)
+        doc = OurAssistant.find_one(
+            filter={"$or": [{"api_token": api_token}, {"apiToken": api_token}]},
+            projection={"_id": 0, "astId": 1},
+            sort=[("createdAt", -1)]
         )    
-        result = None
-        for document in doc:
-            result = document.get("astId")
         
-        if not result:
+        if not doc:
             print(f"No assistant found for api token {api_token}")
+            return ""
+        
+        result = doc.get("astId")
+        if not result:
+            print(f"No astId found for api token {api_token}")
             return ""
         return result
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Something went wrong during fetching vector store."
+            detail="Something went wrong during fetching assistant."
         )
     
 
@@ -292,9 +296,12 @@ async def get_userid_by_assistant_id(assistant_id):
             projection={"_id": 0, "userId": 1},
             sort=[("createdAt", -1)])
         
-        print("Document found: ",doc["userId"])  # Debugging line
-
-        return doc["userId"]
+        if not doc:
+            print(f"No assistant found for astId: {assistant_id}")
+            return None
+        
+        print("Document found: ",doc.get("userId"))  # Debugging line
+        return doc.get("userId")
 
     except Exception as e:
         print(f"Error: {e}")
