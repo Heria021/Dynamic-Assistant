@@ -1,10 +1,125 @@
 import asyncio
+import io
+import time
+from typing import List, Optional
+
 import app.models.model_types as modelType
 from fastapi import UploadFile
 from openai import OpenAI
-import time
-import datetime
-import io
+
+
+class OpenAIHelper:
+    """Helper wrapper around the OpenAI Assistants/Threads API."""
+
+    def __init__(self, api_key: str):
+        self.client = OpenAI(api_key=api_key)
+
+    async def upload_file(self, file: UploadFile) -> str:
+        contents = await file.read()
+        file_like = io.BytesIO(contents)
+        file_like.name = file.filename
+
+        created_file = self.client.files.create(file=file_like, purpose="assistants")
+        return created_file.id
+
+    async def create_assistant(
+        self,
+        name: str,
+        instructions: str,
+        model: str,
+        tools: List[str],
+        file_ids: Optional[List[str]] = None,
+    ):
+        tool_payload = [{"type": tool} for tool in tools]
+        payload = {
+            "name": name,
+            "instructions": instructions,
+            "model": model,
+            "tools": tool_payload,
+        }
+
+        if file_ids:
+            payload["file_ids"] = file_ids
+
+        return self.client.beta.assistants.create(**payload)
+
+    async def update_assistant(self, assistant_id: str, **updates):
+        return self.client.beta.assistants.update(
+            assistant_id=assistant_id, **updates
+        )
+
+    async def delete_assistant(self, assistant_id: str):
+        return self.client.beta.assistants.delete(assistant_id=assistant_id)
+
+    async def create_thread(self):
+        return self.client.beta.threads.create()
+
+    async def delete_thread(self, thread_id: str):
+        return self.client.beta.threads.delete(thread_id=thread_id)
+
+    async def get_thread_messages(self, thread_id: str):
+        messages = self.client.beta.threads.messages.list(
+            thread_id=thread_id, order="asc"
+        )
+        return messages.data
+
+    def _wait_for_run(self, thread_id: str, run_id: str):
+        run = self.client.beta.threads.runs.retrieve(
+            thread_id=thread_id, run_id=run_id
+        )
+        while run.status in {"queued", "in_progress"}:
+            time.sleep(0.5)
+            run = self.client.beta.threads.runs.retrieve(
+                thread_id=thread_id, run_id=run_id
+            )
+        return run
+
+    async def create_message_and_run(
+        self,
+        thread_id: str,
+        assistant_id: str,
+        message: str,
+        images: Optional[List[dict]] = None,
+    ) -> dict:
+        content = [{"type": "text", "text": message}]
+        if images:
+            for image in images:
+                content.append(
+                    {
+                        "type": "input_image",
+                        "image": {
+                            "data": image.get("data"),
+                            "media_type": image.get("content_type", "image/png"),
+                        },
+                    }
+                )
+
+        self.client.beta.threads.messages.create(
+            thread_id=thread_id,
+            role="user",
+            content=content,
+        )
+
+        run = self.client.beta.threads.runs.create(
+            thread_id=thread_id, assistant_id=assistant_id
+        )
+        run = self._wait_for_run(thread_id, run.id)
+
+        messages = self.client.beta.threads.messages.list(
+            thread_id=thread_id, order="desc", limit=1
+        )
+        latest_message = messages.data[0] if messages.data else None
+        assistant_response = (
+            latest_message.content[0].text.value if latest_message else ""
+        )
+
+        tokens_used = getattr(getattr(run, "usage", None), "total_tokens", 0) or 0
+
+        return {
+            "response": assistant_response,
+            "tokens_used": tokens_used,
+            "run": run.model_dump() if hasattr(run, "model_dump") else None,
+        }
 
 def wait_on_run(run, thread_id):
         client = OpenAI()
