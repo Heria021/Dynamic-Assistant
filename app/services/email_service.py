@@ -198,3 +198,33 @@ class EmailService:
         </html>
         """
         return self.send_email(to_email, subject, message_text)
+
+    def send_team_member_invite_email(self, to_email: str, member_name: str | None, owner_email: str, magic_link_url: str) -> bool:
+        """Send team member invitation email with magic link"""
+        subject = "You're invited to join the team"
+        greeting = f"Hello {member_name}," if member_name else "Hello,"
+
+        message_text = f"""
+        <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #2c3e50; text-align: center;">Team Invitation</h2>
+                    <p>{greeting}</p>
+                    <p>{owner_email} has invited you to join their team on our platform.</p>
+                    <p>Click the button below to set up your account and choose a password. This link will expire in 48 hours.</p>
+
+                    <p style="text-align: center; margin-top: 20px;">
+                        <a href="{magic_link_url}" style="background-color: #3498db; color: white; padding: 12px 22px; text-decoration: none; border-radius: 6px;">Set up your account</a>
+                    </p>
+
+                    <p style="margin-top: 20px;">If the button doesn't work, copy and paste the following URL into your browser:</p>
+                    <p style="word-break: break-all;">{magic_link_url}</p>
+
+                    <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;">
+                    <p style="font-size: 12px; color: #999;">If you didn't expect this invitation, you can ignore this email.</p>
+                </div>
+            </body>
+        </html>
+        """
+
+        return self.send_email(to_email, subject, message_text)
