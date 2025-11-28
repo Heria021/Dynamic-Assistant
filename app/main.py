@@ -10,6 +10,8 @@ from app.routers import threads
 from app.routers import chats
 from app.routers import auth, enduser, channels
 from app.routers import admin_router, settings_router, usage_router
+from app.routers import agent
+
 app = FastAPI()
 
 origins = [settings.CLIENT_ORIGIN]
@@ -30,6 +32,7 @@ app.include_router(channels.router, tags=["Channel"], prefix="/api/channel")
 app.include_router(settings_router.router)
 app.include_router(usage_router.router)
 app.include_router(admin_router.router)
+app.include_router(agent.router)
 
 @app.get("/health")
 async def root():

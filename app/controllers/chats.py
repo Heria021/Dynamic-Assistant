@@ -159,6 +159,15 @@ class ChatController:
 
         result = await self.chats_collection.insert_one(chat_document)
 
+        # === NEW: PROCESS ACTIONS ===
+        if actions:
+            await self._process_actions(
+                actions=actions,
+                thread_id=threadId,
+                user_id=user_id,
+                assistant_id=astId
+            )
+
         # === RETURN RESPONSE WITH ACTIONS ===
         return {
             "status": True,
@@ -218,3 +227,71 @@ class ChatController:
                 "messages": chats,
             },
         }
+
+    # === NEW METHOD: Process Actions ===
+    async def _process_actions(
+        self,
+        actions: List[dict],
+        thread_id: str,
+        user_id: str,
+        assistant_id: str
+    ):
+        """
+        Process actions returned by OpenAI function calls.
+        """
+        for action in actions:
+            action_type = action.get("type")
+            action_data = action.get("data", {})
+
+            print(f"[ACTION] Processing action: {action_type}")
+
+            if action_type == "handoff_to_human":
+                await self._handle_handoff_to_human(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    assistant_id=assistant_id,
+                    reason=action_data.get("reason", "User requested human assistance")
+                )
+
+            elif action_type == "send_link":
+                print(f"[ACTION] Link to send: {action_data.get('url')}")
+
+            elif action_type == "send_email":
+                print(f"[ACTION] Email to send: {action_data.get('subject')}")
+
+    async def _handle_handoff_to_human(
+        self,
+        thread_id: str,
+        user_id: str,
+        assistant_id: str,
+        reason: str
+    ):
+        """
+        Mark thread as needing human assistance.
+        """
+        print(f"[HANDOFF] Initiating handoff for thread: {thread_id}")
+        print(f"[HANDOFF] Reason: {reason}")
+
+        update_result = await self.threads_collection.update_one(
+            {"threadId": thread_id, "userId": user_id},
+            {
+                "$set": {
+                    "status": "pending_handoff",
+                    "last_message_from": "ai",
+                    "handoff": {
+                        "requested_at": datetime.utcnow(),
+                        "reason": reason,
+                        "assigned_to": None,
+                        "assigned_at": None,
+                        "completed_at": None,
+                        "notes": ""
+                    },
+                    "updatedAt": datetime.utcnow()
+                }
+            }
+        )
+
+        if update_result.modified_count > 0:
+            print(f"[HANDOFF] ✓ Thread {thread_id} marked for human handoff")
+        else:
+            print(f"[HANDOFF] ✗ Failed to update thread status")
