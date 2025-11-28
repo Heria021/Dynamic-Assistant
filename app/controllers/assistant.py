@@ -1,3 +1,5 @@
+import io
+import os
 import secrets
 from datetime import datetime
 from typing import List, Optional
@@ -10,6 +12,7 @@ from app.helpers.openai_helper import OpenAIHelper
 from app.services.openai_key_manager import OpenAIKeyManager
 from app.services.rate_limiter import RateLimiter
 from app.utils.db_helpers import get_user_collection, normalize_object_id
+from app.utils.function_tools import get_function_tools
 
 
 class AssistantController:
@@ -51,21 +54,78 @@ class AssistantController:
 
         openai_helper = OpenAIHelper(api_key=openai_key)
 
+        # === OPENAI NATIVE FILE SEARCH: Create vector store ===
+        vector_store_id = None
         file_ids: List[str] = []
+        
         if files:
+            print(f"[RAG-DEBUG] Creating OpenAI vector store for {len(files)} file(s)")
+            # Create vector store
+            vector_store = openai_helper.client.beta.vector_stores.create(
+                name=f"{assistant.astName}_vector_store"
+            )
+            vector_store_id = vector_store.id
+            print(f"[RAG-DEBUG] Vector store created: {vector_store_id}")
+            
+            # Upload files to OpenAI and associate with vector store
             for file in files:
+                # Upload file
                 file_id = await openai_helper.upload_file(file)
                 file_ids.append(file_id)
+                print(f"[RAG-DEBUG] File uploaded: {file.filename} -> {file_id}")
+                
+                # Associate file with vector store
+                openai_helper.client.beta.vector_stores.files.create(
+                    vector_store_id=vector_store_id,
+                    file_id=file_id
+                )
+                print(f"[RAG-DEBUG] File associated with vector store: {file_id}")
 
         try:
+            # === PREPARE TOOLS ===
+            # Normalize user tools properly (strings → objects, dicts → unchanged)
+            user_tools = []
+            for t in assistant.astTools:
+                if isinstance(t, str):
+                    # Simple tool name like "code_interpreter" or "file_search"
+                    user_tools.append({"type": t})
+                elif isinstance(t, dict):
+                    # Full function tool object already structured correctly
+                    user_tools.append(t)
+                else:
+                    raise ValueError(f"Invalid tool format: {t}")
+            function_tools = get_function_tools()  # Get standard function calling tools
+            
+            # Merge tools (avoid duplicates)
+            all_tools = user_tools.copy()
+            # Get existing function names from user tools (if any are functions)
+            existing_function_names = {
+                t.get("function", {}).get("name", "")
+                for t in user_tools
+                if t.get("type") == "function"
+            }
+            
+            # Add function tools that aren't already present
+            for func_tool in function_tools:
+                func_name = func_tool.get("function", {}).get("name", "")
+                if func_name not in existing_function_names:
+                    all_tools.append(func_tool)
+            
+            print(f"[FUNC] Adding {len(function_tools)} function tools to assistant at creation time")
+            print(f"[FUNC] Total tools: {len(all_tools)} ({len(user_tools)} user + {len([t for t in all_tools if t.get('type') == 'function'])} functions)")
+            
+            # Create assistant with file_search tool and vector store
             assistant_data = await openai_helper.create_assistant(
                 name=assistant.astName,
                 instructions=assistant.astInstruction,
                 model=assistant.gptModel,
-                tools=assistant.astTools,
+                tools=all_tools,  # Include function tools from the start
                 file_ids=file_ids,
+                vector_store_id=vector_store_id,  # NEW: Pass vector store for file_search
             )
             assistant_id = assistant_data.id
+            print(f"[RAG-DEBUG] Assistant created with OpenAI file search: {assistant_id}")
+            print(f"[FUNC] ✓ Function tools added to assistant at creation time")
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -83,6 +143,7 @@ class AssistantController:
             "astId": assistant_id,
             "apiToken": api_token,
             "file_ids": file_ids,
+            "vector_store_id": vector_store_id,  # NEW: Store vector store ID for reference
             "usage_stats": {
                 "total_messages": 0,
                 "total_tokens": 0,
@@ -95,6 +156,12 @@ class AssistantController:
 
         result = await self.assistants_collection.insert_one(assistant_document)
         assistant_document["_id"] = str(result.inserted_id)
+
+        # OpenAI handles file search automatically - no Milvus needed!
+        if file_ids:
+            print(f"[RAG-DEBUG] ✓ Files uploaded to OpenAI vector store - RAG enabled automatically")
+        else:
+            print(f"[RAG-DEBUG] No files uploaded - RAG disabled")
 
         await rate_limiter.increment_assistant_count(user_id)
 

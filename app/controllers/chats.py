@@ -93,6 +93,18 @@ class ChatController:
                     }
                 )
 
+        # === OPENAI NATIVE FILE SEARCH ===
+        # OpenAI automatically uses file_search tool when files are attached
+        # No need for manual RAG retrieval - OpenAI handles it!
+        has_files = bool(assistant.get("file_ids"))
+        if has_files:
+            print(f"[RAG-DEBUG] Assistant has {len(assistant.get('file_ids', []))} file(s) - OpenAI file_search enabled")
+        else:
+            print(f"[RAG-DEBUG] Assistant has no files - file_search disabled")
+
+        # === CALL OPENAI WITH RAG + FUNCTIONS ===
+        # Note: Function tools are already on the assistant (added at creation time)
+        # No need to pass them here - OpenAI will use them automatically
         openai_helper = OpenAIHelper(api_key=openai_key)
         try:
             response = await openai_helper.create_message_and_run(
@@ -100,6 +112,8 @@ class ChatController:
                 assistant_id=assistant["astId"],
                 message=message,
                 images=image_data_list,
+                # Function tools are already on the assistant - no need to pass them
+                # Note: OpenAI file_search is automatic when assistant has files
             )
         except Exception as exc:
             raise HTTPException(
@@ -107,8 +121,15 @@ class ChatController:
                 detail=f"Failed to get response from assistant: {exc}",
             ) from exc
 
+        # === EXTRACT RESPONSE DATA ===
         assistant_response = response.get("response", "")
         tokens_used = response.get("tokens_used", 0)
+        actions = response.get("actions", [])  # NEW
+        used_rag = response.get("used_rag", False)  # NEW
+        
+        print(f"[RAG-DEBUG] Response extracted - used_rag: {used_rag}, actions: {len(actions) if actions else 0}")
+        if actions:
+            print(f"[RAG-DEBUG] Actions found: {actions}")
 
         await rate_limiter.increment_message_count(user_id)
 
@@ -131,11 +152,14 @@ class ChatController:
             "images": image_data_list if image_data_list else None,
             "tokens_used": tokens_used,
             "used_custom_key": is_custom_key,
+            "actions": actions,  # NEW
+            "used_rag": used_rag,  # NEW
             "createdAt": datetime.utcnow(),
         }
 
         result = await self.chats_collection.insert_one(chat_document)
 
+        # === RETURN RESPONSE WITH ACTIONS ===
         return {
             "status": True,
             "message": "Chat created successfully",
@@ -145,9 +169,11 @@ class ChatController:
                 "assistant_response": assistant_response,
                 "tokens_used": tokens_used,
                 "used_custom_key": is_custom_key,
+                "used_rag": used_rag,  # NEW
                 "images_count": len(image_data_list) if image_data_list else 0,
                 "timestamp": datetime.utcnow(),
             },
+            "actions": actions if actions else None,  # NEW: Root-level actions
         }
 
     async def get_chat_history(
@@ -176,6 +202,13 @@ class ChatController:
         )
         chats = await cursor.to_list(length=limit)
         chats.reverse()
+
+        # Convert ObjectId to string for JSON serialization
+        for chat in chats:
+            if "_id" in chat:
+                chat["_id"] = str(chat["_id"])
+            if "chat_id" in chat:
+                chat["chat_id"] = str(chat["chat_id"])
 
         return {
             "status": True,

@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
+from typing import List, Optional
 
 import app.models.model_types as model_type
 from app.controllers.assistant import AssistantController
@@ -21,11 +22,30 @@ async def create_assistant(
 
 @router.post("/create-assistant-with-file")
 async def create_assistant_with_file(
-    files: list[UploadFile],
-    assistant: model_type.Assistant = Depends(),
+    files: List[UploadFile] = File(...),
+    astName: str = Form(...),
+    astInstruction: str = Form(...),
+    gptModel: str = Form(...),
+    astTools: str = Form(...),  # JSON string or comma-separated
     user: dict = Depends(get_current_user),
     controller: AssistantController = Depends(get_assistant_controller),
 ):
+    # Parse astTools - can be JSON string or comma-separated
+    import json
+    try:
+        tools_list = json.loads(astTools)
+    except:
+        # If not JSON, treat as comma-separated
+        tools_list = [tool.strip() for tool in astTools.split(",") if tool.strip()]
+    
+    # Create Assistant model from form data
+    assistant = model_type.Assistant(
+        astName=astName,
+        astInstruction=astInstruction,
+        gptModel=gptModel,
+        astTools=tools_list
+    )
+    
     return await controller.create_assistant(assistant, user, files)
 
 @router.post("/upload-assistant-files/{ast_id}")

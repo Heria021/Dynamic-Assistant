@@ -56,8 +56,9 @@ Pygments==2.16.1
 PyJWT==2.9.0
 pymongo==4.9.1
 motor==3.6.0
+pymilvus==2.6.4
 python-dateutil==2.9.0.post0
-python-dotenv==1.0.0
+python-dotenv==1.0.1
 python-multipart==0.0.6
 PyYAML==6.0.1
 reportlab==4.0.7
