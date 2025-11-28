@@ -84,3 +84,22 @@ class UserProfile(BaseModel):
 class Channel(BaseModel):
     astName: str
     apiToken: str
+
+
+# ============================================================================
+# TEAM MEMBER REQUEST/RESPONSE MODELS
+# ============================================================================
+
+class SetPasswordRequest(BaseModel):
+    email: Optional[str] = None
+    token: str
+    password: constr(min_length=8)
+
+
+class TeamMemberLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class MagicLinkLoginRequest(BaseModel):
+    token: str

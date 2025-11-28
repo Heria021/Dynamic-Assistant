@@ -490,3 +490,204 @@ def update_last_login(email: str):
         print(f"Error updating last login: {e}")
         # Don't raise error for this non-critical operation
         pass
+
+
+# ============================================================================
+# TEAM MEMBER OPERATIONS
+# ============================================================================
+
+def create_team_member(
+    owner_id: str,
+    member_id: str,
+    email: str,
+    name: str,
+    role: str,
+    login_credentials: dict,
+    assigned_bots: list = None
+):
+    """Create a new team member for an owner"""
+    if assigned_bots is None:
+        assigned_bots = []
+    
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        
+        team_member_data = {
+            "member_id": member_id,
+            "owner_id": owner_id,
+            "email": email,
+            "name": name,
+            "role": role,
+            "assigned_bots": assigned_bots,
+            "login_credentials": login_credentials,
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+            "invited_at": datetime.utcnow(),
+            "confirmed_at": None,
+            "last_login": None,
+            "metadata": {}
+        }
+        
+        result = team_members_collection.insert_one(team_member_data)
+        return str(result.inserted_id)
+    
+    except Exception as e:
+        print(f"Error creating team member: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create team member: {str(e)}"
+        )
+
+
+def find_team_member_by_email(email: str):
+    """Find team member by email"""
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        return team_members_collection.find_one({"email": email})
+    except Exception as e:
+        print(f"Error finding team member: {e}")
+        return None
+
+
+def find_team_member_by_id(member_id: str):
+    """Find team member by member_id"""
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        return team_members_collection.find_one({"member_id": member_id})
+    except Exception as e:
+        print(f"Error finding team member: {e}")
+        return None
+
+
+def find_team_members_by_owner(owner_id: str):
+    """Find all team members for an owner"""
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        return list(team_members_collection.find({"owner_id": owner_id}))
+    except Exception as e:
+        print(f"Error finding team members: {e}")
+        return []
+
+
+def update_team_member(member_id: str, update_data: dict):
+    """Update team member details"""
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        
+        # Add updated_at timestamp
+        update_data["updated_at"] = datetime.utcnow()
+        
+        result = team_members_collection.update_one(
+            {"member_id": member_id},
+            {"$set": update_data}
+        )
+        return result.modified_count > 0
+    
+    except Exception as e:
+        print(f"Error updating team member: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update team member: {str(e)}"
+        )
+
+
+def update_team_member_login_credentials(member_id: str, login_credentials: dict):
+    """Update team member login credentials"""
+    try:
+        return update_team_member(
+            member_id,
+            {"login_credentials": login_credentials}
+        )
+    except Exception as e:
+        print(f"Error updating credentials: {e}")
+        raise
+
+
+def confirm_team_member(member_id: str):
+    """Mark team member as confirmed (password set)"""
+    try:
+        return update_team_member(
+            member_id,
+            {"confirmed_at": datetime.utcnow()}
+        )
+    except Exception as e:
+        print(f"Error confirming team member: {e}")
+        raise
+
+
+def update_team_member_last_login(member_id: str):
+    """Update team member's last login timestamp"""
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        
+        team_members_collection.update_one(
+            {"member_id": member_id},
+            {"$set": {"last_login": datetime.utcnow()}}
+        )
+    except Exception as e:
+        print(f"Error updating last login: {e}")
+        # Don't raise for non-critical operation
+        pass
+
+
+def delete_team_member(member_id: str):
+    """Soft delete team member (deactivate)"""
+    try:
+        return update_team_member(
+            member_id,
+            {"is_active": False}
+        )
+    except Exception as e:
+        print(f"Error deleting team member: {e}")
+        raise
+
+
+def assign_bots_to_member(member_id: str, bot_ids: list):
+    """Assign bots to a team member"""
+    try:
+        return update_team_member(
+            member_id,
+            {"assigned_bots": bot_ids}
+        )
+    except Exception as e:
+        print(f"Error assigning bots: {e}")
+        raise
+
+
+def use_magic_link_token(member_id: str, token: str):
+    """Mark magic link token as used"""
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        
+        result = team_members_collection.update_one(
+            {"member_id": member_id},
+            {
+                "$set": {
+                    "login_credentials.magic_link.is_used": True,
+                    "login_credentials.magic_link.used_at": datetime.utcnow()
+                }
+            }
+        )
+        return result.modified_count > 0
+    
+    except Exception as e:
+        print(f"Error using magic link: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to process magic link"
+        )
+

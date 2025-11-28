@@ -15,13 +15,21 @@ class AgentController:
     async def get_pending_handoffs(self, agent_user: dict):
         """
         Get all threads waiting for human agent pickup.
+        For team members, only show handoffs from assigned bots.
         """
         agent_id = agent_user.get("sub") or agent_user.get("user_id")
+        is_team_member = agent_user.get("is_team_member", False)
+        assigned_bots = agent_user.get("assigned_bots", [])
+        
+        # Build query
+        query = {"status": "pending_handoff"}
+        
+        # If team member, filter by assigned bots
+        if is_team_member and assigned_bots:
+            query["astId"] = {"$in": assigned_bots}
         
         # Find threads pending handoff
-        cursor = self.threads_collection.find({
-            "status": "pending_handoff"
-        }).sort("handoff.requested_at", 1)  # Oldest first
+        cursor = self.threads_collection.find(query).sort("handoff.requested_at", 1)  # Oldest first
         
         pending_threads = await cursor.to_list(length=100)
         
@@ -56,7 +64,8 @@ class AgentController:
             "status": True,
             "data": {
                 "pending_count": len(enriched_threads),
-                "threads": enriched_threads
+                "threads": enriched_threads,
+                "agent_role": "team_member" if is_team_member else "owner"
             }
         }
     
@@ -67,20 +76,29 @@ class AgentController:
     ):
         """
         Human agent picks up a thread.
+        Team members can only pick up threads from assigned bots.
         """
         agent_id = agent_user.get("sub") or agent_user.get("user_id")
         agent_email = agent_user.get("email", "unknown")
+        is_team_member = agent_user.get("is_team_member", False)
+        assigned_bots = agent_user.get("assigned_bots", [])
         
         # Check if thread is available
-        thread = await self.threads_collection.find_one({
+        query = {
             "threadId": thread_id,
             "status": "pending_handoff"
-        })
+        }
+        
+        # For team members, verify the bot is assigned to them
+        if is_team_member and assigned_bots:
+            query["astId"] = {"$in": assigned_bots}
+        
+        thread = await self.threads_collection.find_one(query)
         
         if not thread:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Thread not found or already assigned"
+                status_code=status.HTTP_403_FORBIDDEN if is_team_member else status.HTTP_404_NOT_FOUND,
+                detail="Thread not found, already assigned, or not assigned to your bots"
             )
         
         # Assign to agent

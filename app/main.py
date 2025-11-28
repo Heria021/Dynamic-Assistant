@@ -10,7 +10,7 @@ from app.routers import threads
 from app.routers import chats
 from app.routers import auth, enduser, channels
 from app.routers import admin_router, settings_router, usage_router
-from app.routers import agent
+from app.routers import agent, team_members
 
 app = FastAPI()
 
@@ -33,6 +33,7 @@ app.include_router(settings_router.router)
 app.include_router(usage_router.router)
 app.include_router(admin_router.router)
 app.include_router(agent.router)
+app.include_router(team_members.router)
 
 @app.get("/health")
 async def root():

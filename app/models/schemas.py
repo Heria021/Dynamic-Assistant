@@ -164,3 +164,113 @@ class CostEstimate(BaseModel):
     estimated_cost: float
     currency: str = "USD"
 
+
+# ============================================================================
+# TEAM MEMBER & HANDOFF MANAGEMENT MODELS
+# ============================================================================
+
+class MagicLinkCredential(BaseModel):
+    """Magic link credential for one-time passwordless login."""
+    
+    token: str
+    created_at: datetime
+    expires_at: datetime
+    used_at: Optional[datetime] = None
+    is_used: bool = False
+
+
+class PasswordCredential(BaseModel):
+    """Password credential for team member login."""
+    
+    hash: str
+    set_at: datetime
+
+
+class LoginCredentials(BaseModel):
+    """Login credentials for a team member."""
+    
+    type: str = Field(..., description="'password' or 'magic_link'")
+    password_hash: Optional[str] = None
+    magic_link: Optional[MagicLinkCredential] = None
+
+
+class TeamMember(BaseModel):
+    """Team member under owner's workspace."""
+    
+    member_id: str = Field(..., description="UUID of team member")
+    owner_id: str = Field(..., description="UUID of owner who created this member")
+    email: str
+    name: str
+    role: str = Field(default="agent", description="'agent' or 'supervisor'")
+    assigned_bots: List[str] = Field(default=[], description="List of assistant IDs assigned")
+    login_credentials: LoginCredentials
+    is_active: bool = True
+    created_at: datetime
+    last_login: Optional[datetime] = None
+    invited_at: Optional[datetime] = None
+    confirmed_at: Optional[datetime] = None
+    metadata: dict = Field(default={}, description="Additional metadata")
+
+
+class CreateTeamMemberRequest(BaseModel):
+    """Request to create new team member."""
+    
+    email: str
+    name: str
+    role: str = Field(default="agent", description="'agent' or 'supervisor'")
+    assigned_bots: List[str] = Field(default=[], description="Bot IDs to assign")
+
+
+class UpdateTeamMemberRequest(BaseModel):
+    """Request to update team member."""
+    
+    name: Optional[str] = None
+    role: Optional[str] = None
+    assigned_bots: Optional[List[str]] = None
+    is_active: Optional[bool] = None
+
+
+class TeamMemberResponse(BaseModel):
+    """Response for team member info."""
+    
+    member_id: str
+    email: str
+    name: str
+    role: str
+    assigned_bots: List[str]
+    is_active: bool
+    created_at: datetime
+    confirmed_at: Optional[datetime] = None
+
+
+class SetPasswordRequest(BaseModel):
+    """Request to set password for team member."""
+    
+    token: str = Field(..., description="Magic link token")
+    password: str = Field(..., min_length=8, description="New password")
+
+
+class MagicLinkLoginRequest(BaseModel):
+    """Request to login with magic link."""
+    
+    token: str
+
+
+class TeamMemberLoginRequest(BaseModel):
+    """Request for team member login."""
+    
+    email: str
+    password: str
+
+
+class InviteTeamMemberResponse(BaseModel):
+    """Response when inviting new team member."""
+    
+    member_id: str
+    email: str
+    name: str
+    invite_sent: bool
+    magic_link_token: str = Field(..., description="Token for setting password")
+    message: str
+
+

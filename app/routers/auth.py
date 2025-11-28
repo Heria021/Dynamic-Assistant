@@ -398,6 +398,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 detail="User not found"
             )
 
+
         return {
             "status": "success",
             "user": {
@@ -417,3 +418,230 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             status_code=500,
             detail="An error occurred while fetching user information"
         )
+
+
+# ============================================================================
+# TEAM MEMBER AUTHENTICATION ENDPOINTS
+# ============================================================================
+
+@router.post("/team-member/setup-password")
+async def setup_team_member_password(request: modelType.SetPasswordRequest):
+    """
+    Team member sets password using magic link token.
+    """
+    try:
+        # This should be imported from model_types
+        # For now, create a simple request model
+        email = request.get("email") if isinstance(request, dict) else None
+        token = request.get("token") if isinstance(request, dict) else request.token
+        password = request.get("password") if isinstance(request, dict) else request.password
+        
+        # Find team member by checking all members for this token
+        # Since we don't have direct token search, this is a limitation
+        # Ideally, we'd hash token and index it
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        
+        member = team_members_collection.find_one({
+            "login_credentials.magic_link.token": token,
+            "login_credentials.magic_link.is_used": False
+        })
+        
+        if not member:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired magic link token"
+            )
+        
+        # Check if token has expired
+        from datetime import datetime
+        expires_at = member["login_credentials"]["magic_link"].get("expires_at")
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at)
+        
+        if datetime.utcnow() > expires_at:
+            raise HTTPException(
+                status_code=400,
+                detail="Magic link token has expired"
+            )
+        
+        # Hash password
+        password_hash = auth_controller.hash_password(password)
+        
+        # Update credentials: mark magic link as used and set password
+        new_credentials = {
+            "type": "password",
+            "password_hash": password_hash,
+            "magic_link": member["login_credentials"].get("magic_link", {})
+        }
+        new_credentials["magic_link"]["is_used"] = True
+        new_credentials["magic_link"]["used_at"] = datetime.utcnow().isoformat()
+        
+        team_members_collection.update_one(
+            {"member_id": member["member_id"]},
+            {
+                "$set": {
+                    "login_credentials": new_credentials,
+                    "confirmed_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        return {
+            "status": "success",
+            "message": "Password set successfully. You can now log in."
+        }
+    
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error setting up team member password: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to set password: {str(e)}"
+        )
+
+
+@router.post("/team-member/login")
+async def team_member_login(request: modelType.TeamMemberLoginRequest):
+    """
+    Team member login with email and password.
+    Returns access token scoped to assigned bots.
+    """
+    try:
+        # Find team member
+        team_member = mongo_utils.find_team_member_by_email(request.email)
+        if not team_member:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid email or password"
+            )
+        
+        # Check if active
+        if not team_member.get("is_active", True):
+            raise HTTPException(
+                status_code=403,
+                detail="Account has been deactivated"
+            )
+        
+        # Verify password
+        password_hash = team_member.get("login_credentials", {}).get("password_hash")
+        if not password_hash or not auth_controller.verify_password(request.password, password_hash):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid email or password"
+            )
+        
+        # Create access token with team member scoping
+        access_token = auth_controller.create_team_member_access_token(
+            member_id=team_member["member_id"],
+            email=team_member["email"],
+            role=team_member.get("role", "agent"),
+            assigned_bots=team_member.get("assigned_bots", [])
+        )
+        
+        # Update last login
+        mongo_utils.update_team_member_last_login(team_member["member_id"])
+        
+        return {
+            "status": "success",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "member_id": team_member["member_id"],
+                "email": team_member["email"],
+                "name": team_member["name"],
+                "role": team_member.get("role", "agent"),
+                "assigned_bots": team_member.get("assigned_bots", [])
+            }
+        }
+    
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error during team member login: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred during login"
+        )
+
+
+@router.post("/team-member/magic-link-login")
+async def team_member_magic_link_login(request: modelType.MagicLinkLoginRequest):
+    """
+    Team member login using magic link token.
+    This is a one-time login that works without password.
+    """
+    try:
+        from app.database import get_sync_database
+        db = get_sync_database()
+        team_members_collection = db["team_members"]
+        
+        # Find member by magic link token
+        member = team_members_collection.find_one({
+            "login_credentials.magic_link.token": request.token,
+            "login_credentials.magic_link.is_used": False
+        })
+        
+        if not member:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid or expired magic link token"
+            )
+        
+        # Check if active
+        if not member.get("is_active", True):
+            raise HTTPException(
+                status_code=403,
+                detail="Account has been deactivated"
+            )
+        
+        # Check if token has expired
+        from datetime import datetime
+        expires_at = member["login_credentials"]["magic_link"].get("expires_at")
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at)
+        
+        if datetime.utcnow() > expires_at:
+            raise HTTPException(
+                status_code=400,
+                detail="Magic link token has expired"
+            )
+        
+        # Create access token
+        access_token = auth_controller.create_team_member_access_token(
+            member_id=member["member_id"],
+            email=member["email"],
+            role=member.get("role", "agent"),
+            assigned_bots=member.get("assigned_bots", [])
+        )
+        
+        # Mark magic link as used
+        mongo_utils.use_magic_link_token(member["member_id"], request.token)
+        
+        # Update last login
+        mongo_utils.update_team_member_last_login(member["member_id"])
+        
+        return {
+            "status": "success",
+            "access_token": access_token,
+            "token_type": "bearer",
+            "user": {
+                "member_id": member["member_id"],
+                "email": member["email"],
+                "name": member["name"],
+                "role": member.get("role", "agent"),
+                "assigned_bots": member.get("assigned_bots", [])
+            }
+        }
+    
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Error during magic link login: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="An error occurred during login"
+        )
+

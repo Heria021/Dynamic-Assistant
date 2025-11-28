@@ -1,17 +1,24 @@
-from pymongo import mongo_client
 from app.config import settings
 
-client = mongo_client.MongoClient(settings.DATABASE_URL)
-print('MongoDB Connected Successfully...')
+# Re-export synchronous and (legacy) database helpers from app.database.db
+from .db import get_sync_database
 
-db = client[settings.MONGO_INITDB_DATABASE]
+# Provide a module-level synchronous database connection for code that
+# expects `from app.database import get_database` (backwards compatibility).
+# Internally use the get_sync_database() implementation defined in db.py.
+db = get_sync_database()
 
 OurAssistant = db.Assistant
 AssistantThreads = db.AssistantThreads
 UsersCollection = db.users_collection
 UserProfiles = db.UserProfiles
 
-__all__ = ['OurAssistant', 'AssistantThreads', 'UsersCollection', 'UserProfiles', 'get_database']
+__all__ = ['OurAssistant', 'AssistantThreads', 'UsersCollection', 'UserProfiles', 'get_database', 'get_sync_database']
 
 def get_database():
+    """Synchronous helper (legacy API) returning a pymongo database instance.
+
+    Kept for backward compatibility with existing imports of
+    `from app.database import get_database`.
+    """
     return db

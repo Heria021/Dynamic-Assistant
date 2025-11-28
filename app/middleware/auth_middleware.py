@@ -18,5 +18,11 @@ def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    return {"sub": payload["sub"], "email": payload["email"]}
+    return {
+        "sub": payload["sub"],
+        "email": payload["email"],
+        "role": payload.get("role", "owner"),
+        "is_team_member": payload.get("is_team_member", False),
+        "assigned_bots": payload.get("assigned_bots", [])
+    }
 
